@@ -4,13 +4,13 @@
 
 <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34" />
 
-<application android:label="OdfizMicro">
+<application android:icon="@android:drawable/ic_lock_lock" android:label="OdfizMicro">
     <activity
         android:name="android.app.NativeActivity"
         android:label="OdfizMicro"
         android:exported="true"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
-        android:screenOrientation="landscape"
+        android:screenOrientation="portrait"
         android:configChanges="orientation|keyboardHidden|screenSize">
     <meta-data android:name="android.app.lib_name" android:value="hello" />
     <intent-filter>
