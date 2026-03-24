@@ -1,35 +1,37 @@
 name: Build Ultra Micro APK
-on: [push]
+on: [push, workflow_dispatch]
 
 jobs:
   build:
-      runs-on: ubuntu-latest
-          steps:
-                - uses: actions/checkout@v4
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-                      - name: Setup JDK
-                              uses: actions/setup-java@v4
-                                      with:
-                                                java-version: '17'
-                                                          distribution: 'temurin'
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-                                                                - name: Setup Android SDK
-                                                                        uses: android-actions/setup-android@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-                                                                              - name: Build APK
-                                                                                      run: |
-                                                                                                # Menggunakan Makefile bawaan repo
-                                                                                                          # Kita buat file dummy keystore agar tidak error saat signing
-                                                                                                                    keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+      - name: Install NDK
+        run: sdkmanager "ndk;26.1.10909125"
 
-                                                                                                                                        # Jalankan perintah build
-                                                                                                                                                  make build
-                                                                                                                                                          env:
-                                                                                                                                                                    ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+      - name: Build APK
+        run: |
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          export NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125
+          # Buat keystore sementara agar build tidak gagal saat signing
+          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          make build
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
 
-                                                                                                                                                                          - name: Upload APK
-                                                                                                                                                                                  uses: actions/upload-artifact@v4
-                                                                                                                                                                                          with:
-                                                                                                                                                                                                    name: My-Ultra-Micro-APK
-                                                                                                                                                                                                              path: "*.apk"
-                                                                                                                                                                      
+      - name: Upload Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: Native-C-APK
+          path: "*.apk"
