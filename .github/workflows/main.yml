@@ -17,21 +17,22 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK
+      - name: Install Specific NDK
         run: sdkmanager "ndk;26.1.10909125"
 
       - name: Build APK
         run: |
-          # Cari lokasi NDK secara dinamis
-          NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -name "ndk-build" -exec dirname {} \;)
-          echo "NDK found at: $NDK_PATH"
-          export PATH=$PATH:$NDK_PATH
+          # Langsung tembak ke folder hasil install sdkmanager
+          export NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125
+          export PATH=$NDK_HOME:$PATH
+          
+          echo "Using NDK at: $NDK_HOME"
           
           # Buat keystore debug
           keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           
-          # Jalankan build
-          make build
+          # Jalankan build dengan path eksplisit
+          make build NDK_PATH=$NDK_HOME
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
 
