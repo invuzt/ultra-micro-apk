@@ -22,10 +22,15 @@ jobs:
 
       - name: Build APK
         run: |
-          export ANDROID_HOME=$ANDROID_SDK_ROOT
-          export NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125
-          # Buat keystore sementara agar build tidak gagal saat signing
+          # Cari lokasi NDK secara dinamis
+          NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -name "ndk-build" -exec dirname {} \;)
+          echo "NDK found at: $NDK_PATH"
+          export PATH=$PATH:$NDK_PATH
+          
+          # Buat keystore debug
           keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          
+          # Jalankan build
           make build
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
