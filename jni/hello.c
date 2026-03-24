@@ -1,157 +1,112 @@
 #include <android_native_app_glue.h>
-#include <android/log.h>
-#include <android/native_window.h>
-#include <unistd.h>
+#include <EGL/egl.h>
+#include <GLES/gl.h>
+#include <stdio.h>
 #include <string.h>
-#include <stdint.h>
 #include <math.h>
+#include <time.h>
 
-#define LOG_TAG "NativeHello"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-
-// Complete 5x7 font array for printable ASCII characters
-static const uint8_t font5x7[128][5] = {
-  [' '] = {0x00,0x00,0x00,0x00,0x00},
-  ['!'] = {0x00,0x00,0x5F,0x00,0x00},
-  [','] = {0x00,0x05,0x06,0x00,0x00},
-  ['H'] = {0x7F,0x08,0x08,0x08,0x7F},
-  ['W'] = {0x7C,0x02,0x01,0x02,0x7C},
-  ['a'] = {0x20,0x54,0x54,0x54,0x78},
-  ['d'] = {0x08,0x14,0x14,0x14,0x7F},
-  ['e'] = {0x38,0x54,0x54,0x54,0x18},
-  ['l'] = {0x00,0x41,0x7F,0x40,0x00},
-  ['o'] = {0x38,0x44,0x44,0x44,0x38},
-  ['r'] = {0x7C,0x08,0x04,0x04,0x08},
+struct engine {
+    struct android_app* app;
+    EGLDisplay display;
+    EGLSurface surface;
+    EGLContext context;
+    int32_t width;
+    int32_t height;
 };
 
-static void draw_char_with_stride(uint32_t *pixels, int w, int h, int stride, int x, int y, char c, uint32_t color) {
-    if (c < 0 || c >= 128) return;
+// Fungsi pembaca CPU Load dari sistem Linux
+float get_cpu_load() {
+    static long long last_user, last_idle;
+    long long user, nice, system, idle, iowait, irq, softirq;
+    FILE* fp = fopen("/proc/stat", "r");
+    if (!fp) return 0.5f;
+    fscanf(fp, "cpu %lld %lld %lld %lld %lld %lld %lld", &user, &nice, &system, &idle, &iowait, &irq, &softirq);
+    fclose(fp);
+    long long current_user = user + nice + system + iowait + irq + softirq;
+    long long diff_user = current_user - last_user;
+    long long diff_idle = idle - last_idle;
+    last_user = current_user; last_idle = idle;
+    float total = diff_user + diff_idle;
+    return (total > 0) ? (float)diff_user / total : 0.0f;
+}
 
-    for (int dx = 0; dx < 5; ++dx) {
-        uint8_t col = font5x7[(int)c][dx];
-        for (int dy = 0; dy < 7; ++dy) {
-            if (col & (1 << dy)) {
-                int px = x + dx, py = y + dy;
-                if (px >= 0 && px < w && py >= 0 && py < h)
-                    pixels[py * stride + px] = color;
+// Fungsi gambar kotak warna (Bar) menggunakan glScissor
+void draw_bar(float pct, int row, float r, float g, float b, int screen_w, int screen_h) {
+    int bar_h = screen_h / 8;
+    int spacing = screen_h / 12;
+    int y_pos = screen_h - (row * (bar_h + spacing));
+    int bar_w = (int)(pct * (screen_w - 100));
+
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(50, y_pos, bar_w, bar_h);
+    glClearColor(r, g, b, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+}
+
+static void engine_draw_frame(struct engine* engine) {
+    if (engine->display == NULL) return;
+
+    // Hitung waktu untuk efek denyut (Pulse)
+    struct timespec res;
+    clock_gettime(CLOCK_MONOTONIC, &res);
+    float t = res.tv_sec + (float)res.tv_nsec / 1e9f;
+    float pulse = (sinf(t * 4.0f) * 0.3f) + 0.7f; // Denyut antara 0.4 - 1.0
+
+    glClearColor(0.05f, 0.05f, 0.05f, 1.0f); // Background abu gelap
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Render 4 Bar System
+    draw_bar(get_cpu_load(), 1, 1.0f * pulse, 0.2f, 0.2f, engine->width, engine->height); // CPU (Red Pulse)
+    draw_bar(0.65f, 2, 0.2f, 1.0f, 0.2f, engine->width, engine->height); // RAM (Green)
+    draw_bar(0.85f, 3, 0.2f, 0.5f, 1.0f, engine->width, engine->height); // BAT (Blue)
+    draw_bar(0.40f, 4, 0.7f, 0.7f, 0.7f, engine->width, engine->height); // STR (White)
+
+    eglSwapBuffers(engine->display, engine->surface);
+}
+
+static void engine_init_display(struct engine* engine) {
+    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    eglInitialize(display, 0, 0);
+    EGLConfig config; EGLint numConfigs;
+    const EGLint attribs[] = {EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_RED_SIZE, 8, EGL_NONE};
+    eglChooseConfig(display, attribs, &config, 1, &numConfigs);
+    EGLSurface surface = eglCreateWindowSurface(display, config, engine->app->window, NULL);
+    EGLContext context = eglCreateContext(display, config, NULL, NULL);
+    eglMakeCurrent(display, surface, surface, context);
+    eglQuerySurface(display, surface, EGL_WIDTH, &engine->width);
+    eglQuerySurface(display, surface, EGL_HEIGHT, &engine->height);
+    engine->display = display; engine->surface = surface; engine->context = context;
+}
+
+static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
+    struct engine* engine = (struct engine*)app->userData;
+    switch (cmd) {
+        case APP_CMD_INIT_WINDOW:
+            if (engine->app->window != NULL) {
+                engine_init_display(engine);
+                engine_draw_frame(engine);
             }
+            break;
+    }
+}
+
+void android_main(struct android_app* state) {
+    struct engine engine;
+    memset(&engine, 0, sizeof(engine));
+    state->userData = &engine;
+    state->onAppCmd = engine_handle_cmd;
+    engine.app = state;
+
+    while (1) {
+        int ident, events;
+        struct android_poll_source* source;
+        while ((ident=ALooper_pollAll(0, NULL, &events, (void**)&source)) >= 0) {
+            if (source != NULL) source->process(state, source);
+            if (state->destroyRequested != 0) return;
         }
+        engine_draw_frame(&engine); // Animasi terus berjalan
     }
 }
 
-static void draw_text_with_stride(uint32_t *pixels, int w, int h, int stride, int x, int y, const char *text, uint32_t color) {
-    for (int i = 0; text[i]; ++i)
-        draw_char_with_stride(pixels, w, h, stride, x + i * 6, y, text[i], color);
-}
-
-static void handle_cmd(struct android_app* app, int32_t cmd) {
-  switch (cmd) {
-    case APP_CMD_INIT_WINDOW:
-      LOGI("Window initialized");
-      if (app->window) {
-        // Set window format and make fullscreen
-        ANativeWindow_setBuffersGeometry(app->window, 0, 0, WINDOW_FORMAT_RGBA_8888);
-
-        // Get actual window dimensions
-        int32_t width = ANativeWindow_getWidth(app->window);
-        int32_t height = ANativeWindow_getHeight(app->window);
-        LOGI("Window size: %dx%d", width, height);
-      }
-      break;
-    case APP_CMD_TERM_WINDOW:
-      LOGI("Window terminated");
-      break;
-    case APP_CMD_GAINED_FOCUS:
-      LOGI("Gained focus");
-      break;
-    case APP_CMD_LOST_FOCUS:
-      LOGI("Lost focus");
-      break;
-  }
-}
-
-static float rotation = 0.0f;
-
-static void draw_rectangle_with_stride(uint32_t *pixels, int w, int h, int stride, int cx, int cy, int width, int height, float angle, uint32_t color) {
-  float cos_a = cosf(angle);
-  float sin_a = sinf(angle);
-
-  // Draw filled rectangle
-  for (int y = -height/2; y <= height/2; y++) {
-    for (int x = -width/2; x <= width/2; x++) {
-      int rx = (int)(x * cos_a - y * sin_a) + cx;
-      int ry = (int)(x * sin_a + y * cos_a) + cy;
-
-      if (rx >= 0 && rx < w && ry >= 0 && ry < h) {
-        pixels[ry * stride + rx] = color;  // Use stride here
-      }
-    }
-  }
-}
-
-void android_main(struct android_app* app) {
-  app->onAppCmd = handle_cmd;
-
-  // Prevent stripping of native_app_glue
-  app_dummy();
-
-  LOGI("Starting main loop");
-
-  // Main loop
-  while (1) {
-    int events;
-    struct android_poll_source* source;
-
-    // Poll events with timeout 0 to process input and lifecycle events
-    while (ALooper_pollOnce(0, NULL, &events, (void**)&source) >= 0) {
-      if (source) {
-        source->process(app, source);
-      }
-
-      if (app->destroyRequested != 0) {
-        LOGI("App destroy requested, exiting");
-        return;
-      }
-    }
-
-    // Only draw if window is valid
-    if (app->window) {
-      ANativeWindow_Buffer buffer;
-      int32_t result = ANativeWindow_lock(app->window, &buffer, NULL);
-      if (result == 0) {
-        uint32_t *pixels = (uint32_t*)buffer.bits;
-        int w = buffer.width;
-        int h = buffer.height;
-        int stride = buffer.stride;  // This is the key fix
-
-        LOGI("Buffer: %dx%d, stride: %d", w, h, stride);
-
-        // Clear screen using stride
-        for (int y = 0; y < h; y++) {
-          for (int x = 0; x < w; x++) {
-            pixels[y * stride + x] = 0xFF000000;  // Use stride instead of w
-          }
-        }
-
-        // Draw rectangle using stride
-        int rect_width = w / 4;  // Make it proportional to screen
-        int rect_height = h / 4;
-        draw_rectangle_with_stride(pixels, w, h, stride, w/2, h/2, rect_width, rect_height, rotation, 0xFFFFFFFF);
-
-        rotation += 0.02f;  // Slower rotation
-
-        const char *msg = "Hello, World!";
-        int text_width = strlen(msg) * 6;
-        int x = (w - text_width) / 2;
-        int y = 20;  // 20 pixels from top
-
-        draw_text_with_stride(pixels, w, h, stride, x, y, msg, 0xFFFFFFFF);
-
-        ANativeWindow_unlockAndPost(app->window);
-      }
-    }
-
-    // Sleep a bit to reduce CPU usage
-    usleep(16667); // ~60 FPS
-  }
-}
